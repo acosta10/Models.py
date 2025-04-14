@@ -1,0 +1,97 @@
+import torch
+from torch import nn
+from modules.transformer import TransformerEncoder
+
+class ProjectionLayer(nn.Module):
+    def __init__(self, orig_dims, d_m):
+        super(ProjectionLayer, self).__init__()
+        self.projections = nn.ModuleList([
+            nn.Conv1d(orig_dim, d_m, kernel_size=1, padding=0, bias=False)
+            for orig_dim in orig_dims
+        ])
+
+    def forward(self, inputs):
+        projected = [proj(input_tensor) if proj.in_channels != input_tensor.size(1) else input_tensor
+                     for proj, input_tensor in zip(self.projections, inputs)]
+        return [x.permute(2, 0, 1) for x in projected]  # Permute for transformer input
+
+
+class CrossModalAttentionLayer(nn.Module):
+    def __init__(self, d_m, num_heads, layers, attn_dropout, relu_dropout, res_dropout, embed_dropout, attn_mask):
+        super(CrossModalAttentionLayer, self).__init__()
+        self.transformers = nn.ModuleList([
+            TransformerEncoder(embed_dim=d_m,
+                               num_heads=num_heads,
+                               layers=layers,
+                               attn_dropout=attn_dropout,
+                               relu_dropout=relu_dropout,
+                               res_dropout=res_dropout,
+                               embed_dropout=embed_dropout,
+                               attn_mask=attn_mask)
+            for _ in range(8)  # Assuming 8 modalities
+        ])
+
+    def forward(self, proj_x, proj_all):
+        return [transformer(proj_x_i, proj_all, proj_all) for proj_x_i, transformer in zip(proj_x, self.transformers)]
+
+
+class HUSFORMERModel(nn.Module):
+    def __init__(self, hyp_params):
+        super(HUSFORMERModel, self).__init__()
+        self.orig_dims = [
+            hyp_params.orig_d_m1, hyp_params.orig_d_m2, hyp_params.orig_d_m3,
+            hyp_params.orig_d_m4, hyp_params.orig_d_m5, hyp_params.orig_d_m6,
+            hyp_params.orig_d_m7, hyp_params.orig_d_m8
+        ]
+        self.d_m = 30
+        self.num_heads = hyp_params.num_heads
+        self.layers = hyp_params.layers
+        self.attn_dropout = hyp_params.attn_dropout
+        self.relu_dropout = hyp_params.relu_dropout
+        self.res_dropout = hyp_params.res_dropout
+        self.out_dropout = hyp_params.out_dropout
+        self.embed_dropout = hyp_params.embed_dropout
+        self.attn_mask = hyp_params.attn_mask
+        self.output_dim = hyp_params.output_dim
+
+        # Projection layers
+        self.proj_layer = ProjectionLayer(self.orig_dims, self.d_m)
+        
+        # Cross-modal attention layers
+        self.cross_modal_attention = CrossModalAttentionLayer(
+            d_m=self.d_m,
+            num_heads=self.num_heads,
+            layers=3,
+            attn_dropout=self.attn_dropout,
+            relu_dropout=self.relu_dropout,
+            res_dropout=self.res_dropout,
+            embed_dropout=self.embed_dropout,
+            attn_mask=self.attn_mask
+        )
+
+        # Final transformer layer
+        self.trans_final = TransformerEncoder(
+            embed_dim=self.d_m,
+            num_heads=self.num_heads,
+            layers=9,
+            attn_dropout=self.attn_dropout,
+            relu_dropout=self.relu_dropout,
+            res_dropout=self.res_dropout,
+            embed_dropout=self.embed_dropout,
+            attn_mask=self.attn_mask
+        )
+
+        # Final convolution and output layers
+        self.final_conv = nn.Conv1d(sum(hyp_params.m_len for m_len in [hyp_params.m1_len, hyp_params.m2_len, hyp_params.m3_len, hyp_params.m4_len, hyp_params.m5_len, hyp_params.m6_len, hyp_params.m7_len, hyp_params.m8_len]), 1, kernel_size=1, padding=0, bias=False)
+        self.out_layer = nn.Linear(30, self.output_dim)
+
+    def forward(self, m1, m2, m3, m4, m5, m6, m7, m8):
+        # Project features
+        proj_x = self.proj_layer([m1, m2, m3, m4, m5, m6, m7, m8])
+        proj_all = torch.cat(proj_x, dim=0)
+
+        # Cross-modal attention
+        m_with_all = self.cross_modal_attention(proj_x, proj_all)
+
+        # Concatenate results and process through final transformer
+        last_hs1 = torch.cat(m_with_all, dim=
