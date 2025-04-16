@@ -1,0 +1,48 @@
+import torch
+import random
+import time
+
+# Simulated Car Class
+class VirtualCar:
+    def __init__(self):
+        self.position = [0, 0]  # [x, y]
+        print("Car initialized at position", self.position)
+
+    def move(self, direction):
+        if direction == "forward":
+            self.position[1] += 1
+        elif direction == "reverse":
+            self.position[1] -= 1
+        elif direction == "left":
+            self.position[0] -= 1
+        elif direction == "right":
+            self.position[0] += 1
+        print(f"Moving {direction}. New position: {self.position}")
+
+
+# Simulated EEG classifier output (placeholder for your real model)
+class EEGIntentClassifier(nn.Module):
+    def __init__(self):
+        super(EEGIntentClassifier, self).__init__()
+        self.fake_labels = ["left", "right", "forward", "reverse"]
+
+    def forward(self, eeg_input):
+        # In practice, you'd use a trained model
+        idx = random.randint(0, 3)  # Simulate prediction
+        return self.fake_labels[idx]
+
+
+# Main Control Loop
+def run_virtual_car_with_eeg():
+    car = VirtualCar()
+    eeg_model = EEGIntentClassifier()
+
+    for _ in range(10):  # Simulate 10 EEG signal readings
+        fake_eeg_input = torch.randn(1, 30)  # Simulated EEG feature vector
+        intent = eeg_model(fake_eeg_input)
+        car.move(intent)
+        time.sleep(0.5)  # Simulate real-time delay
+
+
+if __name__ == "__main__":
+    run_virtual_car_with_eeg()
